@@ -9,13 +9,13 @@
 #include <iostream>
 
 namespace CxxServer::Core {
-    enum class IpProtocol { IPv4, IPv6 };
+    enum class InternetProtocol { IPv4, IPv6 };
 
     template<class OutStream>
-    inline OutStream &operator<<(OutStream &o, IpProtocol p) {
-        if (p == IpProtocol::IPv4)
+    inline OutStream &operator<<(OutStream &o, InternetProtocol p) {
+        if (p == InternetProtocol::IPv4)
             o << "IPv4";
-        else if (p == IpProtocol::IPv6)
+        else if (p == InternetProtocol::IPv6)
             o << "IPv6";
         else
             o << "<unknown>";

@@ -1,3 +1,6 @@
 [submodule "libs/asio"]
 	path = libs/asio
 	url = https://github.com/chriskohlhoff/asio
+[submodule "libs/uuid"]
+	path = libs/uuid
+	url = https://github.com/boostorg/uuid.git
