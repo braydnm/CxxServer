@@ -9,11 +9,11 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <shared_mutex>
 #include <string_view>
 #include <system_error>
-#include <unordered_map>
 
 namespace CxxServer::Core::Tcp {
     class Server : public std::enable_shared_from_this<Server> {
@@ -26,7 +26,7 @@ namespace CxxServer::Core::Tcp {
              * \param port - port #
              * \param proto - Internet protocol to use (defaults to IPv4)
              */
-            Server(const std::shared_ptr<Service> &service, int port, InternetProtocol proto = InternetProtocol::IPv4);
+            Server(const std::shared_ptr<Service> &service, unsigned int port, InternetProtocol proto = InternetProtocol::IPv4);
 
             //! Init server with IO, address & port to use
             /*!
@@ -34,7 +34,7 @@ namespace CxxServer::Core::Tcp {
              * \param addr - Address to use
              * \param port - port to use
              */
-            Server(const std::shared_ptr<Service> &service, const std::string &addr, int port);
+            Server(const std::shared_ptr<Service> &service, const std::string &addr, unsigned int port);
 
             //! Init server with IO & endpoint
             /*!
@@ -182,7 +182,7 @@ namespace CxxServer::Core::Tcp {
             virtual void onError(int code, const std::string &category, const std::string &message);
 
             std::shared_mutex _sessions_lock;
-            std::unordered_map<Uuid, std::shared_ptr<Session>> _sessions;
+            std::map<Uuid, std::shared_ptr<Session>> _sessions;
 
         private:
             //! Server Id

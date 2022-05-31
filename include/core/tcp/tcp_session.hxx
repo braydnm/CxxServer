@@ -46,20 +46,20 @@ namespace CxxServer::Core::Tcp {
         asio::ip::tcp::socket &socket() noexcept { return _socket; }
 
         //! Get # of bytes pending
-        uint64_t bytes_pending() const noexcept { return _bytes_pending; }
+        uint64_t bytesPending() const noexcept { return _bytes_pending; }
         //! Get # of bytes sent
-        uint64_t bytes_sent() const noexcept { return _bytes_sent; }
+        uint64_t bytesSent() const noexcept { return _bytes_sent; }
         //! Get # of bytes received
-        uint64_t bytes_received() const noexcept { return _bytes_received; }
+        uint64_t bytesReceived() const noexcept { return _bytes_received; }
 
         //! Get receive buffer limit
-        size_t receive_buffer_limit() const noexcept { return _receive_limit; }
+        size_t receiveBufferLimit() const noexcept { return _receive_limit; }
         //! Get receive buffer size
-        size_t receive_buffer_size() const;
+        size_t receiveBufferSize() const;
         //! Get send buffer limit
-        size_t send_buffer_limit() const noexcept { return _send_limit; }
+        size_t sendBufferLimit() const noexcept { return _send_limit; }
         //! Get send buffer size
-        size_t send_buffer_size() const;
+        size_t sendBufferSize() const;
 
         //! Is session connected?
         bool isConnected() const noexcept { return _connected; }
@@ -174,7 +174,7 @@ namespace CxxServer::Core::Tcp {
          * \param category - Error category
          * \param message - Error message
          */
-        virtual void onErr(int err, const std::string &category, const std::string &message);
+        virtual void onError(int err, const std::string &category, const std::string &message);
 
     private:
         Uuid _id;
