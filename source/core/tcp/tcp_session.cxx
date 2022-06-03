@@ -1,4 +1,3 @@
-#include "asio/bind_executor.hpp"
 #include "core/memory.hxx"
 #include "core/tcp/tcp_server.hxx"
 #include "core/tcp/tcp_session.hxx"
