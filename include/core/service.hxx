@@ -1,6 +1,6 @@
 #pragma once
 
-#include <asio.hpp>
+#include "core/io.hxx"
 
 #include <atomic>
 #include <cstddef>
@@ -144,7 +144,7 @@ protected:
      * \param category - Error category
      * \param message - Error message
      */
-    virtual void onError(int error, const std::string &category, const std::string &message) {}
+    virtual void onErr(int error, const std::string &category, const std::string &message) {}
 
 private:
     std::vector<std::shared_ptr<asio::io_service>> _services;

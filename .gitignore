@@ -41,4 +41,5 @@ _deps
 *.code-workspace
 
 build/
+bin/
 .cache/

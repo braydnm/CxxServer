@@ -5,7 +5,7 @@
 #include "core/uuid.hxx"
 #include "core/tcp/tcp_session.hxx"
 
-#include <asio.hpp>
+#include "core/io.hxx"
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -75,28 +75,28 @@ namespace CxxServer::Core::Tcp {
             int port() const noexcept { return _port; }
 
             //! Get # of connected sessions
-            int num_connected_sessions() const noexcept { return _sessions.size(); }
+            int numConnectedSessions() const noexcept { return _sessions.size(); }
 
             //! Get # of bytes pending
-            int num_bytes_pending() const noexcept { return _bytes_pending; }
+            int numBytesPending() const noexcept { return _bytes_pending; }
 
             //! Get # of bytes sent
-            int num_bytes_sent() const noexcept { return _bytes_sent; }
+            int numBytesSent() const noexcept { return _bytes_sent; }
             
             //! Get # of bytes received
-            int num_bytes_received() const noexcept { return _bytes_received; }
+            int numBytesReceived() const noexcept { return _bytes_received; }
 
             //! Act as getter & setter for keep alive property
-            bool &keep_alive() noexcept { return _keep_alive; }
+            bool &keepAlive() noexcept { return _keep_alive; }
 
             //! Act as getter & setter for no delay property
-            bool &no_delay() noexcept { return _no_delay; }
+            bool &noDelay() noexcept { return _no_delay; }
 
             //! Act as getter & setter for reuse address property
-            bool &reuse_address() noexcept { return _reuse_addr; }
+            bool &reuseAddress() noexcept { return _reuse_addr; }
 
             //! Act as getter & setter for reuse port property
-            bool &reuse_port() noexcept { return _reuse_port; }
+            bool &reusePort() noexcept { return _reuse_port; }
 
             //! Has server started
             bool isStarted() const noexcept { return _started; }
@@ -165,13 +165,13 @@ namespace CxxServer::Core::Tcp {
             /*!
              * \param session - Session which was connected
              */
-            virtual void onConnect(std::shared_ptr<Session> &session);
+            virtual void onConnect(std::shared_ptr<Session> &session) {}
 
             //! On session disconnect
             /*!
              * \param session - Session which was disconnected
              */
-            virtual void onDisconnect(std::shared_ptr<Session> &session);
+            virtual void onDisconnect(std::shared_ptr<Session> &session) {}
 
             //! On error
             /*!
@@ -179,7 +179,7 @@ namespace CxxServer::Core::Tcp {
              * \param category - Error category
              * \param message - Error message
              */
-            virtual void onError(int code, const std::string &category, const std::string &message);
+            virtual void onErr(int code, const std::string &category, const std::string &message) {}
 
             std::shared_mutex _sessions_lock;
             std::map<Uuid, std::shared_ptr<Session>> _sessions;

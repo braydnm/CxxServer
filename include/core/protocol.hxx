@@ -1,11 +1,7 @@
 #pragma once
 
-#define ASIO_STANDALONE
-#define ASIO_SEPARATE_COMPILATION
-#define ASIO_NO_WIN32_LEAN_AND_MEAN
+#include "core/io.hxx"
 
-#include <asio.hpp>
-#include <asio/ssl.hpp>
 #include <iostream>
 
 namespace CxxServer::Core {

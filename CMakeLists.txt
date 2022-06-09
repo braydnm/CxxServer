@@ -24,7 +24,6 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_EXTENSIONS ON)
 set(CMAKE_THREAD_LIBS_INIT "-lpthread")
 set(CMAKE_HAVE_THREADS_LIBRARY 1)
-set(CMAKE_USE_WIN32_THREADS_INIT 0)
 set(CMAKE_USE_PTHREADS_INIT 1)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 
@@ -40,18 +39,33 @@ set(COMMON_COMPILE_FLAGS "")
 set(PEDANTIC_COMPILE_FLAGS "${COMMON_COMPILE_FLAGS} -Wshadow -pedantic")
 
 
-# Libraries
 find_package(OpenSSL REQUIRED)
 add_subdirectory(libs)
 list(APPEND LINKLIBS ${OPENSSL_LIBRARIES})
 
-# System directories
+# Libraries directories
 include_directories(SYSTEM "${CMAKE_CURRENT_SOURCE_DIR}/libs")
 
-# Library
+# Source code
 file(GLOB_RECURSE LIB_HEADER_FILES "include/*.hxx")
 file(GLOB_RECURSE LIB_SOURCE_FILES "source/*.cxx")
 add_library(cxxserver ${LIB_HEADER_FILES} ${LIB_INLINE_FILES} ${LIB_SOURCE_FILES})
 set_target_properties(cxxserver PROPERTIES COMPILE_FLAGS "${PEDANTIC_COMPILE_FLAGS}" FOLDER "libraries")
 target_include_directories(cxxserver PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(cxxserver ${LINKLIBS} asio)
+
+list(APPEND LINKLIBS cxxserver)
+
+# Tests
+file(GLOB TESTS_HEADER_FILES "tests/*.hxx")
+file(GLOB TESTS_SOURCE_FILES "tests/*.cxx")
+add_executable(tests ${TESTS_SOURCE_FILES} ${TESTS_HEADER_FILES} ${Catch2})
+set_target_properties(tests PROPERTIES COMPILE_FLAGS "${PEDANTIC_COMPILE_FLAGS}" FOLDER "tests")
+target_include_directories(tests PRIVATE ${Catch2})
+target_link_libraries(tests ${LINKLIBS})
+list(APPEND INSTALL_TARGETS tests)
+list(APPEND INSTALL_TARGETS_PDB tests)
+
+# CTest
+enable_testing()
+add_test(tests tests --durations yes --order lex)

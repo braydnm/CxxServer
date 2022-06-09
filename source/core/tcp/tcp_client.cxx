@@ -5,6 +5,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
+#include <cstdint>
 #include <mutex>
 #include <thread>
 
@@ -376,6 +377,46 @@ void Client::tryReceive() {
         _socket.async_read_some(asio::buffer(_receive_buff.data(), _receive_buff.size()), bind_executor(_strand, handler));
     else
         _socket.async_read_some(asio::buffer(_receive_buff.data(), _receive_buff.size()), handler);
+}
+
+bool Client::sendAsync(const void *buffer, size_t size) {\
+    assert(buffer != nullptr && "Pointer to buffer should not be null");
+    if (!isConnected() || size == 0 || buffer == nullptr)
+        return false;
+
+    {
+        std::scoped_lock lock(_send_lock);
+        if (_send_buff_main.size() + size > _send_buff_limit && _send_buff_limit > 0) {
+            err(asio::error::no_buffer_space);
+            return false;
+        }
+
+        bool multiple_send_required = _send_buff_main.empty() || _send_buff_flush.empty();
+
+        const uint8_t *buff8 = reinterpret_cast<const uint8_t*>(buffer);
+        _send_buff_main.insert(_send_buff_main.end(), buff8, buff8 + size);
+
+        _bytes_pending = _send_buff_main.size();
+
+        if (!multiple_send_required)
+            return true;
+    }
+
+    auto self = this->shared_from_this();
+    auto handler = [this, self]() {
+        trySend();
+    };
+
+    if (_strand_needed)
+        _strand.dispatch(handler);
+    else
+        _io->dispatch(handler);
+
+    return true;
+}
+
+void Client::receiveAsync() {
+    tryReceive();
 }
 
 void Client::trySend() {

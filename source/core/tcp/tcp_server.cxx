@@ -280,6 +280,6 @@ namespace CxxServer::Core::Tcp {
         || err == asio::error::connection_reset || err == asio::error::eof || err == asio::error::operation_aborted)
             return;
 
-        onError(err.value(), err.category().name(), err.message());
+        onErr(err.value(), err.category().name(), err.message());
     }
 }

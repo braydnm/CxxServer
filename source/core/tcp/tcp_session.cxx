@@ -3,7 +3,7 @@
 #include "core/tcp/tcp_session.hxx"
 #include "core/uuid.hxx"
 
-#include <asio.hpp>
+#include "core/io.hxx"
 #include <cassert>
 #include <chrono>
 #include <condition_variable>
@@ -52,8 +52,8 @@ namespace CxxServer::Core::Tcp {
     }
 
     void Session::connect() {
-        _socket.set_option(asio::ip::tcp::socket::keep_alive(_server->keep_alive()));
-        _socket.set_option(asio::ip::tcp::no_delay(_server->no_delay()));
+        _socket.set_option(asio::ip::tcp::socket::keep_alive(_server->keepAlive()));
+        _socket.set_option(asio::ip::tcp::no_delay(_server->noDelay()));
 
         _receive_buff.resize(receiveBufferSize());
         _send_buff_main.reserve(sendBufferSize());
@@ -276,7 +276,7 @@ namespace CxxServer::Core::Tcp {
             _bytes_received += num_bytes_received;
             _server->_bytes_received += num_bytes_received;
 
-            onReceived(buffer, num_bytes_received);
+            onReceive(buffer, num_bytes_received);
         }
 
         if (err && err != asio::error::timed_out) {
@@ -313,7 +313,7 @@ namespace CxxServer::Core::Tcp {
                 _bytes_received += size;
                 _server->_bytes_received += size;
 
-                onReceived(_receive_buff.data(), size);
+                onReceive(_receive_buff.data(), size);
 
                 if (_receive_buff.size() == size) {
                     if (size * 2 > _receive_limit && _receive_limit > 0) {
@@ -424,6 +424,6 @@ namespace CxxServer::Core::Tcp {
         || err == asio::error::connection_reset || err == asio::error::eof || err == asio::error::operation_aborted)
             return;
 
-        onError(err.value(), err.category().name(), err.message());
+        onErr(err.value(), err.category().name(), err.message());
     }
 }

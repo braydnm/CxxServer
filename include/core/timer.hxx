@@ -4,7 +4,7 @@
 #include "asio/io_service.hpp"
 #include "core/service.hxx"
 
-#include <asio.hpp>
+#include "core/io.hxx"
 #include <chrono>
 #include <functional>
 #include <memory>
@@ -147,7 +147,7 @@ protected:
      * \param category - Error category
      * \param message - Error message
      */
-    virtual void onError(int error, const std::string &category, const std::string &message) {}
+    virtual void onErr(int error, const std::string &category, const std::string &message) {}
 
 private:
     std::shared_ptr<Service> _service;
@@ -164,7 +164,7 @@ private:
         if (err == asio::error::operation_aborted)
             return;
         
-        onError(err.value(), err.category().name(), err.message());
+        onErr(err.value(), err.category().name(), err.message());
     }
 };
 }

@@ -4,7 +4,7 @@
 #include "core/service.hxx"
 #include "core/uuid.hxx"
 
-#include <asio.hpp>
+#include "core/io.hxx"
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -156,7 +156,7 @@ namespace CxxServer::Core::Tcp {
          * \param buffer - buffer containing data received
          * \param size - number of bytes received
          */
-        virtual void onReceived(const void *buffer, size_t size) {}
+        virtual void onReceive(const void *buffer, size_t size) {}
 
         //! Callback when data is sent
         /*!
@@ -174,7 +174,7 @@ namespace CxxServer::Core::Tcp {
          * \param category - Error category
          * \param message - Error message
          */
-        virtual void onError(int err, const std::string &category, const std::string &message);
+        virtual void onErr(int err, const std::string &category, const std::string &message) {}
 
     private:
         Uuid _id;

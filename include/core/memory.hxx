@@ -19,13 +19,13 @@ namespace CxxServer::Core {
 template<std::size_t S = 1024>
 class HandlerMemory {
 public:
-    HandlerMemory<>() noexcept : _used(false) {}
-    ~HandlerMemory<>() noexcept = default;
+    HandlerMemory() noexcept : _used(false) {}
+    ~HandlerMemory() noexcept = default;
 
-    HandlerMemory<>(const HandlerMemory<> &) = delete;
-    HandlerMemory<>(HandlerMemory<> &&) = delete;
-    HandlerMemory<> &operator=(const HandlerMemory<>&) = delete;
-    HandlerMemory<> &operator=(HandlerMemory<> &&) = delete;
+    HandlerMemory(const HandlerMemory &) = delete;
+    HandlerMemory(HandlerMemory &&) = delete;
+    HandlerMemory &operator=(const HandlerMemory &) = delete;
+    HandlerMemory &operator=(HandlerMemory &&) = delete;
 
     //! Allocate memory for handler
     /*!

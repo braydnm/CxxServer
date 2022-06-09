@@ -4,7 +4,8 @@
 #include "core/service.hxx"
 #include "core/uuid.hxx"
 
-#include <asio.hpp>
+#include "core/io.hxx"
+
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -174,14 +175,14 @@ public:
      * \param size - Buffer size
      * \return number of bytes sent
      */
-    virtual size_t sendAsync(const void *buffer, size_t size);
+    virtual bool sendAsync(const void *buffer, size_t size);
 
     //! Send text to server asynchronously
     /*!
      * \param text - Text to send
      * \return number of bytes(characters) sent
      */
-    virtual size_t sendAsync(std::string_view text) { return sendAsync(text.data(), text.size()); }
+    virtual bool sendAsync(std::string_view text) { return sendAsync(text.data(), text.size()); }
 
     //! Receive data from server
     /*!

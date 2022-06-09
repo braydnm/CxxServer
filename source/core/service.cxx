@@ -36,7 +36,7 @@ namespace CxxServer::Core {
             } while (service->isStarted());
         } catch (const asio::system_error &err) {
             auto sys_err = err.code();
-            service->onError(sys_err.value(), sys_err.category().name(), sys_err.message());
+            service->onErr(sys_err.value(), sys_err.category().name(), sys_err.message());
         }
         catch (const std::exception &err) {
             die(err.what());
@@ -61,7 +61,7 @@ namespace CxxServer::Core {
         else if (!own_io)
         {
             // IO service per thread
-            for (int i = 0; i < num_threads; ++i)
+            for (std::size_t i = 0; i < num_threads; ++i)
             {
                 _services.emplace_back(std::make_shared<asio::io_service>());
                 _threads.emplace_back(std::thread());
@@ -71,7 +71,7 @@ namespace CxxServer::Core {
         {
             // One IO service per thread
             _services.emplace_back(std::make_shared<asio::io_service>());
-            for (int i = 0; i < num_threads; ++i)
+            for (std::size_t i = 0; i < num_threads; ++i)
                 _threads.emplace_back(std::thread());
 
             _strand = std::make_shared<asio::io_service::strand>(*_services[0]);
@@ -108,7 +108,7 @@ namespace CxxServer::Core {
 
         this->post(start_handler);
 
-        for (int i = 0; i < _threads.size(); ++i) {
+        for (std::size_t i = 0; i < _threads.size(); ++i) {
             _threads[i] = std::thread([this, self, i]() {
                 serviceThread(self, _services[i % _services.size()]);
             });

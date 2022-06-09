@@ -4,3 +4,7 @@
 [submodule "libs/uuid"]
 	path = libs/uuid
 	url = https://github.com/boostorg/uuid.git
+[submodule "libs/Catch2"]
+	path = libs/Catch2
+	url = https://github.com/catchorg/Catch2
+	branch = v2.x
