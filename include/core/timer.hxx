@@ -1,10 +1,8 @@
 #pragma once
 
-#include "asio/error.hpp"
-#include "asio/io_service.hpp"
 #include "core/service.hxx"
-
 #include "core/io.hxx"
+
 #include <chrono>
 #include <functional>
 #include <memory>

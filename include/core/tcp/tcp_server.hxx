@@ -1,5 +1,3 @@
-#include "asio/io_service.hpp"
-#include "asio/ip/tcp.hpp"
 #include "core/memory.hxx"
 #include "core/protocol.hxx"
 #include "core/uuid.hxx"

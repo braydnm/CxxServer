@@ -1,5 +1,6 @@
 include("asio.cmake")
 include("catch2.cmake")
+include("cxxopts.cmake")
 if (NOT TARGET uuid)
     add_subdirectory("uuid")
 endif()
