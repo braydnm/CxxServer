@@ -1,23 +1,20 @@
 #include "catch2/catch.hpp"
 
 #include "core/service.hxx"
-#include "core/tcp/tcp_client.hxx"
-#include "core/tcp/tcp_session.hxx"
-#include "core/tcp/tcp_server.hxx"
-
-#include <atomic>
-#include <chrono>
-#include <cstddef>
-#include <cstdlib>
-#include <memory>
-#include <thread>
-#include <vector>
+#include "core/tcp/ssl_client.hxx"
+#include "core/tcp/ssl_context.hxx"
+#include "core/tcp/ssl_server.hxx"
+#include "core/tcp/ssl_session.hxx"
 
 namespace {
-
-    using SslSession = CxxServer::Core::Tcp::Session;
-    using SslServer = CxxServer::Core::Tcp::Server;
-    using SslClient = CxxServer::Core::Tcp::Client;
+    using SslSession = CxxServer::Core::SSL::Session;
+    using SslServer = CxxServer::Core::SSL::Server;
+    using SslClient = CxxServer::Core::SSL::Client;
+    using SslContext = CxxServer::Core::SSL::Context;
+    
+    using TcpSession = CxxServer::Core::Tcp::Session;
+    using TcpServer = CxxServer::Core::Tcp::Server;
+    using TcpClient = CxxServer::Core::Tcp::Client;
 
     class EchoService : public CxxServer::Core::Service {
         public:
@@ -39,13 +36,15 @@ namespace {
 
     class EchoSession : public SslSession {
     public:
-        using Session::Session;
+        using SslSession::Session;
         std::atomic<bool> connected = false;
+        std::atomic<bool> handshaked = false;
         std::atomic<bool> disconnected = false;
         std::atomic<bool> errors = false;
 
     protected:
         void onConnect() override { connected = true; }
+        void onHandshaked() override { handshaked = true; }
         void onDisconnect() override { disconnected = true; }
         void onErr(int error, const std::string &category, const std::string &message) override { errors = true; }
         void onReceive(const void *data, size_t size) override { 
@@ -55,40 +54,63 @@ namespace {
 
     class EchoServer : public SslServer {
         public:
-            using Server::Server;
+            using SslServer::Server;
             std::atomic<bool> started = false;
             std::atomic<bool> stopped = false;
             std::atomic<bool> connected = false;
+            std::atomic<bool> handshaked = false;
             std::atomic<bool> disconnected = false;
             std::atomic<size_t> connections = 0;
             std::atomic<bool> errors = false;
 
+            static std::shared_ptr<SslContext> CreateContext()
+            {
+                auto context = std::make_shared<SslContext>(asio::ssl::context::tlsv12);
+                context->set_password_callback([](size_t max_length, asio::ssl::context::password_purpose purpose) -> std::string { return "qwerty"; });
+                context->use_certificate_chain_file("../certs/server.pem");
+                context->use_private_key_file("../certs/server.pem", asio::ssl::context::pem);
+                context->use_tmp_dh_file("../certs/dh4096.pem");
+                return context;
+            }
+
         protected:
-            std::shared_ptr<SslSession> newSession(const std::shared_ptr<Server> &server) override { return std::make_shared<EchoSession>(server); }
+            std::shared_ptr<TcpSession> newSession(const std::shared_ptr<TcpServer> &server) override { return std::make_shared<EchoSession>(server, context()); }
 
             void onStart() override { started = true; }
             void onStop() override { stopped = true; }
-            void onConnect(std::shared_ptr<SslSession> &s) override { connected = true; ++connections; }
-            void onDisconnect(std::shared_ptr<SslSession> &s) override { disconnected = true; --connections; }
+            void onConnect(std::shared_ptr<TcpSession> &s) override { connected = true; ++connections; }
+            void onHandshaked(std::shared_ptr<TcpSession> &session) override { handshaked = true; }
+            void onDisconnect(std::shared_ptr<TcpSession> &s) override { disconnected = true; --connections; }
             void onErr(int error, const std::string &category, const std::string &message) override { errors = true; }
     };
 
     class EchoClient : public SslClient {
     public:
-        using Client::Client;
+        using SslClient::Client;
         std::atomic<bool> connected = false;
+        std::atomic<bool> handshaked = false;
         std::atomic<bool> disconnected = false;
         std::atomic<bool> errors = false;
 
+        static std::shared_ptr<SslContext> CreateContext()
+        {
+            auto context = std::make_shared<SslContext>(asio::ssl::context::tlsv12);
+            context->set_default_verify_paths();
+            context->set_verify_mode(asio::ssl::verify_peer | asio::ssl::verify_fail_if_no_peer_cert);
+            context->load_verify_file("../certs/ca.pem");
+            return context;
+        }
+
     protected:
         void onConnect() override { connected = true; }
+        void onHandshaked() override { handshaked = true; }
         void onDisconnect() override { disconnected = true; }
         void onErr(int error, const std::string &category, const std::string &message) override { errors = true; }
     };
 
-    TEST_CASE("TCP server test", "[CxxServer][TCP]") {
+    TEST_CASE("SSL server test", "[CxxServer][SSL]") {
         const std::string address = "127.0.0.1";
-        const unsigned int port = 1111;
+        const unsigned int port = 2222;
 
         // Create and start IO service
         auto service = std::make_shared<EchoService>();
@@ -99,14 +121,17 @@ namespace {
 
         INFO("Service started");
 
-        auto server = std::make_shared<EchoServer>(service, port);
+        auto server_context = EchoServer::CreateContext();
+
+        auto server = std::make_shared<EchoServer>(service, server_context, port);
         REQUIRE(server->start());
         while (!server->isStarted())
             std::this_thread::yield();
 
         INFO("Server started")
 
-        auto client = std::make_shared<EchoClient>(service, address, port);
+        auto client_context = EchoClient::CreateContext();
+        auto client = std::make_shared<EchoClient>(service, client_context, address, port);
         REQUIRE(client->connectAsync());
         INFO("Client connecting")
         while (!client->isReady() || (server->connections != 1))
@@ -123,7 +148,7 @@ namespace {
         INFO("Client received message")
 
         REQUIRE(client->disconnectAsync());
-        while (client->isReady() || (server->connections != 0))
+        while (client->isConnected() || (server->connections != 0))
             std::this_thread::yield();
 
         REQUIRE(server->stop());
@@ -146,6 +171,7 @@ namespace {
         REQUIRE(server->started);
         REQUIRE(server->stopped);
         REQUIRE(server->connected);
+        REQUIRE(server->handshaked);
         REQUIRE(server->disconnected);
         REQUIRE(server->numBytesSent() == 4);
         REQUIRE(server->numBytesReceived() == 4);
@@ -153,29 +179,32 @@ namespace {
 
         // Check the Echo client state
         REQUIRE(client->connected);
+        REQUIRE(client->handshaked);
         REQUIRE(client->disconnected);
         REQUIRE(client->numBytesSent() == 4);
         REQUIRE(client->numBytesReceived() == 4);
         REQUIRE(!client->errors);
     }
 
-    TEST_CASE("TCP multicast server test", "[CxxServer][TCP]") {
+    TEST_CASE("SSL multicast server test", "[CxxServer][SSL]") {
         const std::string address = "127.0.0.1";
-        const unsigned int port = 1112;
+        const unsigned int port = 2223;
 
         auto service = std::make_shared<EchoService>();
         REQUIRE(service->start(true));
         while (!service->isStarted())
             std::this_thread::yield();
 
-        auto server = std::make_shared<EchoServer>(service, address, port);
+        auto server_context = EchoServer::CreateContext();
+        auto server = std::make_shared<EchoServer>(service, server_context, address, port);
         REQUIRE(server->start());
         while (!server->isStarted())
             std::this_thread::yield();
 
+        auto client_context = EchoClient::CreateContext();
         std::vector<std::pair<std::shared_ptr<EchoClient>, size_t>> clients;
         for (size_t i = 0; i < 3; ++i) {
-            clients.push_back({std::make_shared<EchoClient>(service, address, port), i});
+            clients.push_back({std::make_shared<EchoClient>(service, client_context, address, port), i});
             REQUIRE(clients.back().first->connectAsync());
             while (!clients.back().first->isReady() || server->connections != clients.size())
                 std::this_thread::yield();
@@ -186,7 +215,6 @@ namespace {
             while (receiving) {
                 receiving = false;
                 for (auto &c : clients) {
-                    // std::cout<<"Comparing "<<c.first->numBytesReceived()<<" and "<<(4 * (i - c.second + 1))<<" for client "<<c.second<<std::endl;
                     if (c.first->numBytesReceived() == 4 * (i - c.second + 1))
                         continue;
 
@@ -244,6 +272,7 @@ namespace {
         REQUIRE(server->started);
         REQUIRE(server->stopped);
         REQUIRE(server->connected);
+        REQUIRE(server->handshaked);
         REQUIRE(server->disconnected);
         REQUIRE(server->numBytesSent() == 36);
         REQUIRE(server->numBytesReceived() == 0);
@@ -257,10 +286,11 @@ namespace {
         }
     }
 
-    TEST_CASE("TCP random stress test", "[CxxServer][TCP]") {
+    TEST_CASE("SSL random stress test", "[CxxServer][SSL]") {
         const std::string address = "127.0.0.1";
-        const unsigned int port = 1112;
+        const unsigned int port = 2224;
 
+        auto client_context = EchoClient::CreateContext();
         std::vector<std::shared_ptr<EchoClient>> clients;
         clients.reserve(100);
 
@@ -269,7 +299,8 @@ namespace {
         while (!service->isStarted())
             std::this_thread::yield();
 
-        auto server = std::make_shared<EchoServer>(service, address, port);
+        auto server_context = EchoServer::CreateContext();
+        auto server = std::make_shared<EchoServer>(service, server_context, address, port);
         REQUIRE(server->start());
         while (!server->isStarted())
             std::this_thread::yield();
@@ -280,22 +311,25 @@ namespace {
                 server->disconnectAll();
             }
             else if ((rand() % 100) == 0 && clients.size() < 100) {
-                clients.push_back(std::make_shared<EchoClient>(service, address, port));
+                clients.push_back(std::make_shared<EchoClient>(service, client_context, address, port));
                 clients.back()->connectAsync();
                 while (!clients.back()->isReady())
                     std::this_thread::yield();
             }
             else if ((rand() % 100) == 0 && !clients.empty()) {
                 size_t idx = rand() % clients.size();
-                bool state = clients[idx]->isReady();
+                auto client = clients[idx];
 
-                if (state)
-                    clients[idx]->disconnectAsync();
-                else
-                    clients[idx]->connectAsync();
-
-                while (clients[idx]->isReady() == state)
-                    std::this_thread::yield();
+                if (client->isReady()) {
+                    client->disconnectAsync();
+                    while (client->isConnected())
+                        std::this_thread::yield();
+                }
+                else if (!client->isConnected()) {
+                    client->connectAsync();
+                    while (!client->isReady())
+                        std::this_thread::yield();
+                }
             }
             else if ((rand() % 100) == 0 && !clients.empty()) {
                 size_t idx = rand() % clients.size();
@@ -334,10 +368,10 @@ namespace {
         REQUIRE(server->started);
         REQUIRE(server->stopped);
         REQUIRE(server->connected);
+        REQUIRE(server->handshaked);
         REQUIRE(server->disconnected);
         REQUIRE(server->numBytesSent() > 0);
         REQUIRE(server->numBytesReceived() > 0);
         REQUIRE(!server->errors);
     }
-
 }

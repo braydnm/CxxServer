@@ -29,31 +29,45 @@ namespace CxxServer::Core::Tcp {
         _send_flush_offset(0)
     {}
 
+    void Session::asyncWriteSome(const void *buffer, std::size_t size, HandlerFastMem<std::function<void(std::error_code, std::size_t)>> &handler) {
+        if (_strand_needed)
+            _socket.async_write_some(asio::buffer(buffer, size), asio::bind_executor(_strand, handler));
+        else
+            _socket.async_write_some(asio::buffer(buffer, size), handler);
+    }
+
+    void Session::asyncReadSome(void *buffer, std::size_t size, HandlerFastMem<std::function<void(std::error_code, std::size_t)>> &handler) {
+        if (_strand_needed)
+            _socket.async_read_some(asio::buffer(buffer, size), asio::bind_executor(_strand, handler));
+        else
+            _socket.async_read_some(asio::buffer(buffer, size), handler);
+    }
+
     size_t Session::receiveBufferSize() const {
         asio::socket_base::receive_buffer_size size;
-        _socket.get_option(size);
+        this->socket().get_option(size);
         return size.value();
     }
 
     size_t Session::sendBufferSize() const {
         asio::socket_base::send_buffer_size size;
-        _socket.get_option(size);
+        this->socket().get_option(size);
         return size.value();
     }
 
     void Session::setReceiveBuffSize(size_t size) {
         asio::socket_base::receive_buffer_size opt(size);
-        _socket.set_option(opt);
+        this->socket().set_option(opt);
     }
 
     void Session::setSendBuffSize(size_t size) {
         asio::socket_base::send_buffer_size opt(size);
-        _socket.set_option(opt);
+        this->socket().set_option(opt);
     }
 
     void Session::connect() {
-        _socket.set_option(asio::ip::tcp::socket::keep_alive(_server->keepAlive()));
-        _socket.set_option(asio::ip::tcp::no_delay(_server->noDelay()));
+        this->socket().set_option(asio::ip::tcp::socket::keep_alive(_server->keepAlive()));
+        this->socket().set_option(asio::ip::tcp::no_delay(_server->noDelay()));
 
         _receive_buff.resize(receiveBufferSize());
         _send_buff_main.reserve(sendBufferSize());
@@ -82,7 +96,7 @@ namespace CxxServer::Core::Tcp {
             if (!isConnected())
                 return;
 
-            _socket.close();
+            close();
 
             _connected = _receiving = _sending = false;
 
@@ -119,7 +133,7 @@ namespace CxxServer::Core::Tcp {
     }
 
     size_t Session::send(const void *buffer, size_t size, std::chrono::nanoseconds timeout) {
-        if (!isConnected())
+        if (!isConnectionComplete())
             return 0;
 
         if (size == 0)
@@ -134,20 +148,22 @@ namespace CxxServer::Core::Tcp {
 
         // no timeout
         if (timeout.count() == 0) {
-            num_bytes_sent = asio::write(_socket, asio::buffer(buffer, size), err);
+            num_bytes_sent = writeSome(buffer, size, err);
         }
         else {
             int done = 0;
             std::mutex send_mtx;
             std::condition_variable cv;
-            asio::system_timer timer(_socket.get_executor());
+            // note this will always outlive the async write call
+            HandlerMemory<> mem;
+            asio::system_timer timer(executor());
 
-            auto handler = [&](asio::error_code code) {
+            auto handler = [this, &send_mtx, &done, &err, &timer, &cv](asio::error_code code) {
                 std::unique_lock<std::mutex> locker(send_mtx);
 
                 if (done++ == 0) {
                     err = code;
-                    _socket.cancel();
+                    this->socket().cancel();
                     timer.cancel();
                 }
 
@@ -157,10 +173,12 @@ namespace CxxServer::Core::Tcp {
             timer.expires_from_now(timeout);
             timer.async_wait([&](const asio::error_code &code) { handler(err ? err : asio::error::timed_out); });
 
-            _socket.async_write_some(asio::buffer(buffer, size), [&](std::error_code code, size_t write) {
+            auto timeout_handler = HandlerFastMem<std::function<void(std::error_code, std::size_t)>>(mem, [handler, &num_bytes_sent](std::error_code code, size_t write) {
                 handler(code);
                 num_bytes_sent = write;
             });
+
+            asyncWriteSome(buffer, size, timeout_handler);
 
             std::unique_lock<std::mutex> locker(send_mtx);
             cv.wait(locker, [&]() { return done == 2; });
@@ -182,7 +200,7 @@ namespace CxxServer::Core::Tcp {
     }
 
     bool Session::sendAsync(const void *buffer, size_t size) {
-        if (!isConnected())
+        if (!isConnectionComplete())
             return false;
 
         if (size == 0)
@@ -225,7 +243,7 @@ namespace CxxServer::Core::Tcp {
     }
 
     size_t Session::receive(void *buffer, size_t size, std::chrono::nanoseconds timeout) {
-        if (!isConnected())
+        if (!isConnectionComplete())
             return 0;
 
         if (size == 0)
@@ -240,20 +258,21 @@ namespace CxxServer::Core::Tcp {
 
         // no timeout
         if (timeout.count() == 0) {
-            num_bytes_received = _socket.read_some(asio::buffer(buffer, size), err);
+            num_bytes_received = readSome(buffer, size, err);
         }
         else {
             int done = 0;
             std::mutex send_mtx;
             std::condition_variable cv;
-            asio::system_timer timer(_socket.get_executor());
+            HandlerMemory<> mem;
+            asio::system_timer timer(this->executor());
 
             auto handler = [&](asio::error_code code) {
                 std::unique_lock<std::mutex> locker(send_mtx);
 
                 if (done++ == 0) {
                     err = code;
-                    _socket.cancel();
+                    this->socket().cancel();
                     timer.cancel();
                 }
 
@@ -263,10 +282,12 @@ namespace CxxServer::Core::Tcp {
             timer.expires_from_now(timeout);
             timer.async_wait([&](const asio::error_code &code) { handler(err ? err : asio::error::timed_out); });
 
-            _socket.async_read_some(asio::buffer(buffer, size), [&](std::error_code code, size_t write) {
+            auto timeout_handler = HandlerFastMem<std::function<void(std::error_code, std::size_t)>>(mem, [&](std::error_code code, size_t write) {
                 handler(code);
                 num_bytes_received = write;
             });
+
+            asyncReadSome(buffer, size, timeout_handler);
 
             std::unique_lock<std::mutex> locker(send_mtx);
             cv.wait(locker, [&]() { return done == 2; });
@@ -298,15 +319,15 @@ namespace CxxServer::Core::Tcp {
     }
 
     void Session::tryReceive() {
-        if (_receiving || !isConnected())
+        if (_receiving || !isConnectionComplete())
             return;
 
         _receiving = true;
         auto self(this->shared_from_this());
-        auto handler = HandlerFastMem(_receive_storage, [this, self](std::error_code err, size_t size) {
+        auto handler = HandlerFastMem<std::function<void(std::error_code, std::size_t)>>(_receive_storage, [this, self](std::error_code err, size_t size) {
             _receiving = false;
 
-            if (!isConnected())
+            if (!isConnectionComplete())
                 return;
             
             if (size > 0) {
@@ -335,14 +356,11 @@ namespace CxxServer::Core::Tcp {
             }
         });
 
-        if (_strand_needed)
-            _socket.async_read_some(asio::buffer(_receive_buff.data(), _receive_buff.size()), asio::bind_executor(_strand, handler));
-        else
-            _socket.async_read_some(asio::buffer(_receive_buff.data(), _receive_buff.size()), handler);
+        asyncReadSome(_receive_buff.data(), _receive_buff.size(), handler);
     }
 
     void Session::trySend() {
-        if (_sending || !isConnected())
+        if (_sending || !isConnectionComplete())
             return;
 
         if (_send_buff_flush.empty()) {
@@ -362,10 +380,10 @@ namespace CxxServer::Core::Tcp {
 
         _sending = true;
         auto self(this->shared_from_this());
-        auto handler = HandlerFastMem(_send_storage, [this, self](std::error_code err, size_t size) {
+        auto handler = HandlerFastMem<std::function<void(std::error_code, std::size_t)>>(_send_storage, [this, self](std::error_code err, size_t size) {
             _sending = false;
 
-            if (!isConnected())
+            if (!isConnectionComplete())
                 return;
 
             if (size > 0) {
@@ -393,16 +411,7 @@ namespace CxxServer::Core::Tcp {
             }
         });
 
-        if (_strand_needed)
-            _socket.async_write_some(
-                asio::buffer(_send_buff_flush.data() + _send_flush_offset, _send_buff_flush.size() - _send_flush_offset), 
-                asio::bind_executor(_strand, handler)
-            );
-        else
-            _socket.async_write_some(
-                asio::buffer(_send_buff_flush.data() + _send_flush_offset, _send_buff_flush.size() - _send_flush_offset), 
-                handler
-            );
+        asyncWriteSome(_send_buff_flush.data() + _send_flush_offset, _send_buff_flush.size() - _send_flush_offset, handler);
     }
 
     void Session::clearBuffs() {

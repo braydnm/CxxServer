@@ -73,7 +73,6 @@ add_test(tests tests --durations yes --order lex)
 # Benchmarks
 file(GLOB BENCHMARK_SOURCE_FILES RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/performance" "performance/*.cxx")
 foreach(BENCHMARK_SOURCE_FILE ${BENCHMARK_SOURCE_FILES})
-  message("Found " ${BENCHMARK_TARGET})
   string(REGEX REPLACE "(.*)\\.cxx" "\\1" BENCHMARK_NAME ${BENCHMARK_SOURCE_FILE})
   set(BENCHMARK_TARGET "cxxserver-performance-${BENCHMARK_NAME}")
   add_executable(${BENCHMARK_TARGET} "performance/${BENCHMARK_SOURCE_FILE}")

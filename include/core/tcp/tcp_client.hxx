@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/memory.hxx"
+#include "core/properties.hxx"
 #include "core/service.hxx"
 #include "core/uuid.hxx"
 
@@ -16,6 +17,10 @@
 #include <string_view>
 #include <vector>
 
+namespace CxxServer::Core::SSL {
+    class Client;
+}
+
 namespace CxxServer::Core::Tcp {
 //! TCP Client
 /*!
@@ -23,8 +28,10 @@ namespace CxxServer::Core::Tcp {
  * 
  * Thread safe
  */
-class Client : public std::enable_shared_from_this<Client> {
+class Client : public std::enable_shared_from_this<Client>, private noncopyable, private nonmovable {
 public:
+    friend class SSL::Client;
+
     //! Initialize client with given IO service, address & port
     /*!
      * \param io - IO service
@@ -47,12 +54,6 @@ public:
      * \param endpoint - Endpoint to use
      */
     Client(const std::shared_ptr<Service> &service, const asio::ip::tcp::endpoint &endpoint);
-
-    Client(const Client&) = delete;
-    Client(Client &&) = delete;
-    Client &operator=(const Client &) = delete;
-    Client &operator=(Client &&) = delete;
-
     virtual ~Client() = default;
 
     //! Get client Id
@@ -67,8 +68,11 @@ public:
     //! Get client endpoint
     asio::ip::tcp::endpoint &endpoint() noexcept { return _endpoint; }
 
-    //! Get client socket
-    asio::ip::tcp::socket &socket() noexcept { return _socket; }
+    //! Get associated socket
+    virtual asio::ip::tcp::socket &socket() noexcept { return _socket; }
+
+    //! Get associated socket as a constant
+    virtual const asio::ip::tcp::socket &socket() const noexcept { return _socket; }
 
     //! Get client address
     const std::string &addr() const noexcept { return _addr; }
@@ -114,6 +118,9 @@ public:
 
     //! Is the client connected
     bool isConnected() const noexcept { return _connected; }
+
+    //! Is the client ready to send / receive (in SSL this includes handshake), generally use this over isConnected
+    virtual bool isReady() const noexcept { return isConnected(); }
 
     //! Connect to endpoint
     /*! Note this will not start receiving data until receive(Async) is called
@@ -275,16 +282,31 @@ private:
     bool _keep_alive;
     bool _no_delay;
 
+    //! Async write some to IO
+    virtual void asyncWriteSome(const void *buffer, std::size_t size, HandlerFastMem<std::function<void(std::error_code, std::size_t)>> &handler);
+
+    //! Async read some from IO to buffer
+    virtual void asyncReadSome(void *buffer, std::size_t size, HandlerFastMem<std::function<void(std::error_code, std::size_t)>> &handler);
+
+    //! Clear buffers
+    void clearBuffs();
+
+    //! Handle errors
+    virtual void err(std::error_code);
+
+    //! Get executor for timers
+    virtual asio::any_io_executor executor() { return _socket.get_executor(); }
+
     //! Try to read new data
     void tryReceive();
 
     //! Try to send data
     void trySend();
 
-    //! Clear buffers
-    void clearBuffs();
+    //! Read some from IO to buffer synchronously
+    virtual std::size_t readSome(void *buffer, std::size_t size, std::error_code &err) { return _socket.read_some(asio::buffer(buffer, size), err); }
 
-    //! Handle errors
-    void err(std::error_code);
+    //! Write some to IO synchronously
+    virtual size_t writeSome(const void *buffer, std::size_t size, std::error_code &err) { return asio::write(this->socket(), asio::buffer(buffer, size), err); }
 };
 }

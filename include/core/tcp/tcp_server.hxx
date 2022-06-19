@@ -1,4 +1,5 @@
 #include "core/memory.hxx"
+#include "core/properties.hxx"
 #include "core/protocol.hxx"
 #include "core/uuid.hxx"
 #include "core/tcp/tcp_session.hxx"
@@ -14,8 +15,9 @@
 #include <system_error>
 
 namespace CxxServer::Core::Tcp {
-    class Server : public std::enable_shared_from_this<Server> {
+    class Server : public std::enable_shared_from_this<Server>, private noncopyable, private nonmovable {
         friend class Session;
+        friend SSL::Session;
     
         public:
             //! Init server with IO & port #
@@ -40,13 +42,7 @@ namespace CxxServer::Core::Tcp {
              * \param endpoint - endpoint to use
              */
             Server(const std::shared_ptr<Service> &service, const asio::ip::tcp::endpoint &endpoint);
-
             virtual ~Server() = default;
-
-            Server(const Server&) = delete;
-            Server(Server &&) = delete;
-            Server &operator=(const Server &) = delete;
-            Server &operator=(Server &&) = delete;
 
             //! Get server ID
             const Uuid &id() const noexcept { return _id; }

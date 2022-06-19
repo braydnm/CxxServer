@@ -1,40 +1,41 @@
 #pragma once
 
+#include "core/io.hxx"
 #include "core/memory.hxx"
+#include "core/properties.hxx"
 #include "core/service.hxx"
 #include "core/uuid.hxx"
 
-#include "core/io.hxx"
 #include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string_view>
 #include <system_error>
 #include <vector>
 
+
+// TODO: Clean up messy forward declarations
+namespace CxxServer::Core::SSL {
+    class Session;
+}
+
 namespace CxxServer::Core::Tcp {
     class Server;
 
-    class Session : public std::enable_shared_from_this<Session> {
+    class Session : public std::enable_shared_from_this<Session>, private noncopyable, private nonmovable{
         friend class Server;
+        friend class CxxServer::Core::SSL::Session;
 
     public:
-        explicit Session(const std::shared_ptr<Server> &);
+        Session(const std::shared_ptr<Server> &);
         virtual ~Session() = default;
-
-        Session(const Session&) = delete;
-        Session(Session &&) = delete;
-        Session &operator=(const Session&) = delete;
-        Session &operator=(Session &&) = delete;
 
         //! Get session ID;
         const Uuid &id() const noexcept { return _id; }
-
-        //! Get Server
-        std::shared_ptr<Server> &server() noexcept { return _server; }
 
         //! Get IO
         std::shared_ptr<asio::io_service> &io() noexcept { return _io; }
@@ -43,7 +44,10 @@ namespace CxxServer::Core::Tcp {
         asio::io_service::strand &strand() noexcept { return _strand; }
 
         //! Get associated socket
-        asio::ip::tcp::socket &socket() noexcept { return _socket; }
+        virtual asio::ip::tcp::socket &socket() noexcept { return _socket; }
+
+        //! Get associated socket as a constant
+        virtual const asio::ip::tcp::socket &socket() const noexcept { return _socket; }
 
         //! Get # of bytes pending
         uint64_t bytesPending() const noexcept { return _bytes_pending; }
@@ -205,27 +209,49 @@ namespace CxxServer::Core::Tcp {
         size_t _send_flush_offset;
         HandlerMemory<> _send_storage;
 
+        //! Async write some to IO
+        virtual void asyncWriteSome(const void *buffer, std::size_t size, HandlerFastMem<std::function<void(std::error_code, std::size_t)>> &handler);
+
+        //! Async read some from IO to buffer
+        virtual void asyncReadSome(void *buffer, std::size_t size, HandlerFastMem<std::function<void(std::error_code, std::size_t)>> &handler);
+
+        //! Clear all associated buffers
+        void clearBuffs();
+
+        //! Close server
+        virtual void close() { socket().close(); }
+
         //! Connect session
-        void connect();
+        virtual void connect();
         
         //! Disconnect session
         /*!
          * \param dispatch - dispatch session on disconnect
          * \return true if disconnect is successful
         */
-        bool disconnect(bool dispatch);
+        virtual bool disconnect(bool dispatch);
+
+        //! Error notification
+        virtual void err(std::error_code);
+
+        //! Get executor for timers
+        virtual asio::any_io_executor executor() { return _socket.get_executor(); }
+
+        virtual bool isConnectionComplete() const noexcept { return isConnected(); }
 
         //! Try receive data
         void tryReceive();
+
         //! Try send data
         void trySend();
 
-        //! Clear all associated buffers
-        void clearBuffs();
         //! Reset the server
         void resetServer();
 
-        //! Error notification
-        void err(std::error_code);
+        //! Read some from IO to buffer synchronously
+        virtual std::size_t readSome(void *buffer, std::size_t size, std::error_code &err) { return _socket.read_some(asio::buffer(buffer, size), err); }
+
+        //! Write some to IO synchronously
+        virtual size_t writeSome(const void *buffer, std::size_t size, std::error_code &err) { return asio::write(this->socket(), asio::buffer(buffer, size), err); }
     };
 }

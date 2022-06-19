@@ -16,4 +16,5 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wshadow"
 #include <asio.hpp>
+#include <asio/ssl.hpp>
 #pragma clang diagnostic pop

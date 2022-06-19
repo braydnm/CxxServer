@@ -1,8 +1,9 @@
-#include "cxxopts.hpp"
 #include <atomic>
 #include <chrono>
-#include <core/tcp/tcp_client.hxx>
+#include <core/tcp/ssl_client.hxx>
+#include <core/tcp/ssl_context.hxx>
 #include <core/service.hxx>
+#include <cxxopts.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
@@ -20,16 +21,16 @@ std::atomic<uint64_t> end = 0;
 std::atomic<uint64_t> bytes_sent = 0;
 std::atomic<uint64_t> num_errors = 0;
 
-class EchoClient : public CxxServer::Core::Tcp::Client {
+class EchoClient : public CxxServer::Core::SSL::Client {
 
 public:
-    EchoClient(const std::shared_ptr<CxxServer::Core::Service> &service, const std::string &addr, unsigned int port, unsigned int numMsgs)
-        : Client(service, addr, port), _messages(numMsgs) {}
+    EchoClient(const std::shared_ptr<CxxServer::Core::Service> &service, const std::shared_ptr<CxxServer::Core::SSL::Context> context, const std::string &addr, unsigned int port, unsigned int numMsgs)
+        : Client(service, context, addr, port), _messages(numMsgs) {}
 
     void sendMessage() { sendAsync(to_send.data(), to_send.size()); }
 
 protected:
-    void onConnect() override {
+    void onHandshaked() override {
         for (size_t i = 0; i < _messages; ++i)
             sendMessage();
     }
@@ -64,7 +65,7 @@ private:
 int main(int argc, char **argv) {
     long num_cores = sysconf(_SC_NPROCESSORS_ONLN);
 
-    cxxopts::Options options("Echo client", "Echo client for round trip benchmarking");
+    cxxopts::Options options("Echo SSL client", "Echo client for round trip benchmarking");
 
     options.add_options()
         ("a,address", "Address of server, default to 127.0.0.1", cxxopts::value<std::string>()->default_value("127.0.0.1"))
@@ -108,9 +109,14 @@ int main(int argc, char **argv) {
     service->start();
     std::cout<<"done"<<std::endl;
 
+    auto context = std::make_shared<CxxServer::Core::SSL::Context>(asio::ssl::context::tlsv12);
+    context->set_default_verify_paths();
+    context->set_verify_mode(asio::ssl::verify_peer | asio::ssl::verify_fail_if_no_peer_cert);
+    context->load_verify_file("../certs/ca.pem");
+
     std::vector<std::shared_ptr<EchoClient>> clients;
     for (unsigned int i = 0; i < num_clients; ++i) {
-        auto client = std::make_shared<EchoClient>(service, addr, port, messages);
+        auto client = std::make_shared<EchoClient>(service, context, addr, port, messages);
         clients.push_back(client);
     }
 
@@ -128,7 +134,7 @@ int main(int argc, char **argv) {
 
     std::cout<<"Running benchmark... ";
     std::this_thread::sleep_for(std::chrono::seconds(seconds));
-    std::cout<<"done";
+    std::cout<<"done"<<std::endl;
 
     std::cout<<"Disconnecting clients... ";
     for (auto &c : clients)
@@ -154,12 +160,12 @@ int main(int argc, char **argv) {
     unsigned int total_messages = bytes_sent / msg_size;
 
     std::cout<<"Total Time: "<<(end - start)<<" ns"<<std::endl;
-    std::cout<<"Total Data: "<<bytes_sent<<std::endl;
+    std::cout<<"Total Data: "<<bytes_sent<<" bytes"<<std::endl;
     std::cout<<"Total Messages: "<<total_messages<<std::endl;
     std::cout<<"Data throughput: "<<((bytes_sent * 1000000000) / (end - start)) << " bytes/s"<<std::endl;
 
     if (total_messages > 0) {
-        std::cout<<"Message Latency: "<<((end - start) / total_messages)<<std::endl;
+        std::cout<<"Average Message Latency: "<<((end - start) / total_messages)<<" ns"<<std::endl;
         std::cout<<"Message Throughput: "<<total_messages / ((end - start) / 1000000000) << " msgs/s"<<std::endl;
     }
 

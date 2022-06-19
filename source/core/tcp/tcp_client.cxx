@@ -19,6 +19,9 @@ Client::Client(const std::shared_ptr<Service> &service, const std::string &addr,
     _strand_needed(_service->isStrandNeeded()),
     _addr(addr),
     _port(port),
+    /* TODO: If this is made and then never used i.e in SSL::Client where a stream is made does this have
+                any adverse effects, same with SSL::Session?
+    */
     _socket(*_io),
     _connecting(false),
     _connected(false),
@@ -41,7 +44,7 @@ Client::Client(const std::shared_ptr<Service> &service, const std::string &addr,
 
 Client::Client(const std::shared_ptr<Service> &service, const std::string &addr, const std::string &scheme) : Client(service, addr, 0)
 {
-        _scheme = scheme;
+    _scheme = scheme;
 }
 
 Client::Client(const std::shared_ptr<Service> &service, const asio::ip::tcp::endpoint &endpoint) : Client(service, endpoint.address().to_string(), endpoint.port())
@@ -49,26 +52,40 @@ Client::Client(const std::shared_ptr<Service> &service, const asio::ip::tcp::end
 
 }
 
+void Client::asyncWriteSome(const void *buffer, std::size_t size, HandlerFastMem<std::function<void(std::error_code, std::size_t)>> &handler) {
+        if (_strand_needed)
+            _socket.async_write_some(asio::buffer(buffer, size), asio::bind_executor(_strand, handler));
+        else
+            _socket.async_write_some(asio::buffer(buffer, size), handler);
+    }
+
+void Client::asyncReadSome(void *buffer, std::size_t size, HandlerFastMem<std::function<void(std::error_code, std::size_t)>> &handler) {
+    if (_strand_needed)
+        _socket.async_read_some(asio::buffer(buffer, size), asio::bind_executor(_strand, handler));
+    else
+        _socket.async_read_some(asio::buffer(buffer, size), handler);
+}
+
 size_t Client::receiveBuffSize() const {
     asio::socket_base::receive_buffer_size option;
-    _socket.get_option(option);
+    socket().get_option(option);
     return option.value();
 }
 
 size_t Client::sendBuffSize() const {
     asio::socket_base::send_buffer_size option;
-    _socket.get_option(option);
+    socket().get_option(option);
     return option.value();
 }
 
 void Client::setReceiveBuffSize(size_t size) {
     asio::socket_base::receive_buffer_size option(size);
-    _socket.set_option(option);
+    socket().set_option(option);
 }
 
 void Client::setSendBuffSize(size_t size) {
     asio::socket_base::send_buffer_size option(size);
-    _socket.set_option(option);
+    socket().set_option(option);
 }
 
 bool Client::connect() {
@@ -79,7 +96,7 @@ bool Client::connect() {
 
     _endpoint = asio::ip::tcp::endpoint(asio::ip::make_address(_addr), _port);
 
-    _socket.connect(_endpoint, err);
+    socket().connect(_endpoint, err);
 
     if (err) {
         this->err(err);
@@ -87,8 +104,8 @@ bool Client::connect() {
         return false;
     }
 
-    _socket.set_option(asio::ip::tcp::socket::keep_alive(_keep_alive));
-    _socket.set_option(asio::ip::tcp::no_delay(_no_delay));
+    socket().set_option(asio::ip::tcp::socket::keep_alive(_keep_alive));
+    socket().set_option(asio::ip::tcp::no_delay(_no_delay));
 
     _receive_buff.resize(receiveBuffSize());
     _send_buff_main.reserve(sendBuffSize());
@@ -122,8 +139,8 @@ bool Client::connectAsync() {
                 return;
 
             if (!err) {
-                _socket.set_option(asio::ip::tcp::socket::keep_alive(_keep_alive));
-                _socket.set_option(asio::ip::tcp::no_delay(_no_delay));
+                socket().set_option(asio::ip::tcp::socket::keep_alive(_keep_alive));
+                socket().set_option(asio::ip::tcp::no_delay(_no_delay));
 
                 _receive_buff.resize(receiveBuffSize());
                 _send_buff_main.reserve(sendBuffSize());
@@ -149,9 +166,9 @@ bool Client::connectAsync() {
 
         _endpoint = asio::ip::tcp::endpoint(asio::ip::make_address(_addr), _port);
         if (_strand_needed)
-            _socket.async_connect(_endpoint, bind_executor(_strand, connected_handler));
+            socket().async_connect(_endpoint, bind_executor(_strand, connected_handler));
         else
-            _socket.async_connect(_endpoint, connected_handler);
+            socket().async_connect(_endpoint, connected_handler);
     };
 
 
@@ -167,7 +184,7 @@ bool Client::disconnect() {
     if (!isConnected())
         return false;
 
-    _socket.close();
+    socket().close();
 
     _connecting = false;
     _connected = false;
@@ -186,7 +203,7 @@ bool Client::disconnectAsync(bool dispatch) {
         return false;
 
     asio::error_code err;
-    _socket.cancel(err);
+    socket().cancel(err);
 
     auto self(this->shared_from_this());
     auto handler = [this, self]() { disconnect(); };
@@ -224,7 +241,7 @@ bool Client::reconnectAsync() {
 }
 
 size_t Client::send(const void *buffer, size_t size, std::chrono::nanoseconds timeout) {
-    if (!isConnected() || size == 0)
+    if (!isReady() || size == 0)
         return 0;
 
     assert(buffer != nullptr && "Buffer should not be null");
@@ -235,28 +252,32 @@ size_t Client::send(const void *buffer, size_t size, std::chrono::nanoseconds ti
     size_t sent;
 
     if (timeout.count() == 0) {
-        sent = asio::write(_socket, asio::buffer(buffer, size));
+        sent = writeSome(buffer, size, err);
     }
     else {
         int done;
         std::mutex mtx;
         std::condition_variable cv;
-        asio::system_timer timer(_socket.get_executor());
+        HandlerMemory mem;
+        asio::system_timer timer(executor());
 
         auto handler = [&](asio::error_code e) {
             std::unique_lock<std::mutex> lock(mtx);
             if (done++ == 0) {
                 err = e;
-                _socket.cancel();
+                socket().cancel();
                 timer.cancel();
             }
             cv.notify_one();
         };
 
+        auto timeout_handler = HandlerFastMem<std::function<void(std::error_code, std::size_t)>>(mem, 
+                                    [&](std::error_code e, size_t s) { handler(e); sent = s; });
+        
         timer.expires_from_now(timeout);
         timer.async_wait([&](const asio::error_code &e) { handler(e ? e : asio::error::timed_out); });
 
-        _socket.async_write_some(asio::buffer(buffer, size), [&](std::error_code e, size_t s) { handler(e); sent = s; });
+        asyncWriteSome(buffer, size, timeout_handler);
 
         std::unique_lock<std::mutex> lock(mtx);
         cv.wait(lock, [&]() { return done == 2; });
@@ -276,7 +297,7 @@ size_t Client::send(const void *buffer, size_t size, std::chrono::nanoseconds ti
 }
 
 size_t Client::receive(void *buffer, size_t size, std::chrono::nanoseconds timeout) {
-    if (!isConnected() || size == 0)
+    if (!isReady() || size == 0)
         return 0;
 
     assert(buffer != nullptr && "Pointer to receive buffer should not be null");
@@ -287,19 +308,20 @@ size_t Client::receive(void *buffer, size_t size, std::chrono::nanoseconds timeo
     size_t received;
 
     if (timeout.count() == 0) {
-        received = _socket.read_some(asio::buffer(buffer, size), err);
+        received = readSome(buffer, size, err);
     }
     else {
         int done;
         std::mutex mtx;
         std::condition_variable cv;
-        asio::system_timer timer(_socket.get_executor());
+        HandlerMemory mem;
+        asio::system_timer timer(socket().get_executor());
 
         auto handler = [&](asio::error_code ec) {
             std::unique_lock<std::mutex> lock(mtx);
             if (done++ == 0) {
                 err = ec;
-                _socket.cancel();
+                socket().cancel();
                 timer.cancel();
             }
 
@@ -309,8 +331,11 @@ size_t Client::receive(void *buffer, size_t size, std::chrono::nanoseconds timeo
         timer.expires_from_now(timeout);
         timer.async_wait([&](const asio::error_code &ec) { handler(ec ? ec : asio::error::timed_out); });
 
+        auto timeout_handler = HandlerFastMem<std::function<void(std::error_code, std::size_t)>>(mem, 
+                                [&](std::error_code ec, size_t read) { handler(ec); received  = read;});
+
         received = 0;
-        _socket.async_read_some(asio::buffer(buffer, size), [&](std::error_code ec, size_t read) { handler(ec); received  = read;});
+        asyncReadSome(buffer, size, timeout_handler);
 
         std::unique_lock<std::mutex> lock(mtx);
         cv.wait(lock, [&]() { return done == 2; });
@@ -336,16 +361,16 @@ std::string Client::receive(size_t size, std::chrono::nanoseconds timeout) {
 }
 
 void Client::tryReceive() {
-    if (_receiving || !isConnected())
+    if (_receiving || !isReady())
         return;
 
     _receiving = true;
     auto self(this->shared_from_this());
 
-    auto handler = HandlerFastMem(_receive_storage, [this, self](std::error_code err, size_t size) {
+    auto handler = HandlerFastMem<std::function<void(std::error_code, std::size_t)>>(_receive_storage, [this, self](std::error_code err, size_t size) {
         _receiving = false;
 
-        if (!isConnected())
+        if (!isReady())
             return;
 
         if (size > 0) {
@@ -373,15 +398,12 @@ void Client::tryReceive() {
         }
     });
 
-    if (_strand_needed)
-        _socket.async_read_some(asio::buffer(_receive_buff.data(), _receive_buff.size()), bind_executor(_strand, handler));
-    else
-        _socket.async_read_some(asio::buffer(_receive_buff.data(), _receive_buff.size()), handler);
+    asyncReadSome(_receive_buff.data(), _receive_buff.size(), handler);
 }
 
 bool Client::sendAsync(const void *buffer, size_t size) {\
     assert(buffer != nullptr && "Pointer to buffer should not be null");
-    if (!isConnected() || size == 0 || buffer == nullptr)
+    if (!isReady() || size == 0 || buffer == nullptr)
         return false;
 
     {
@@ -420,7 +442,7 @@ void Client::receiveAsync() {
 }
 
 void Client::trySend() {
-    if (_sending || !isConnected())
+    if (_sending || !isReady())
         return;
 
     if (_send_buff_flush.empty()) {
@@ -441,9 +463,9 @@ void Client::trySend() {
     _sending = true;
     auto self(this->shared_from_this());
 
-    auto handler = HandlerFastMem(_send_storage, [this, self](std::error_code err, size_t size) {
+    auto handler = HandlerFastMem<std::function<void(std::error_code, std::size_t)>>(_send_storage, [this, self](std::error_code err, size_t size) {
         _sending = false;
-        if (!isConnected())
+        if (!isReady())
             return;
 
         if (size > 0) {
@@ -469,10 +491,7 @@ void Client::trySend() {
         }
     });
 
-    if (_strand_needed)
-        _socket.async_write_some(asio::buffer(_send_buff_flush.data(), _send_buff_flush.size()), bind_executor(_strand, handler));
-    else
-        _socket.async_write_some(asio::buffer(_send_buff_flush.data(), _send_buff_flush.size()), handler);
+    asyncWriteSome(_send_buff_flush.data(), _send_buff_flush.size(), handler);
 }
 
 void Client::clearBuffs() {
