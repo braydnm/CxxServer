@@ -31,8 +31,8 @@ set(THREADS_PREFER_PTHREAD_FLAG ON)
 # Store origin compile flags
 set(CMAKE_C_FLAGS_ORIGIN ${CMAKE_C_FLAGS})
 set(CMAKE_CXX_FLAGS_ORIGIN ${CMAKE_CXX_FLAGS})
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Werror")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Werror")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Werror -mavx")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Werror -mavx")
 # Common compile flags
 set(COMMON_COMPILE_FLAGS "")
 # Pedantic compile flags
@@ -51,7 +51,7 @@ file(GLOB_RECURSE LIB_HEADER_FILES "include/*.hxx")
 file(GLOB_RECURSE LIB_SOURCE_FILES "source/*.cxx")
 add_library(cxxserver ${LIB_HEADER_FILES} ${LIB_INLINE_FILES} ${LIB_SOURCE_FILES})
 set_target_properties(cxxserver PROPERTIES COMPILE_FLAGS "${PEDANTIC_COMPILE_FLAGS}" FOLDER "libraries")
-target_include_directories(cxxserver PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_include_directories(cxxserver PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include" ${sparsehash})
 target_link_libraries(cxxserver ${LINKLIBS} asio)
 
 list(APPEND LINKLIBS cxxserver)
