@@ -11,3 +11,6 @@
 [submodule "libs/cxxopts"]
 	path = libs/cxxopts
 	url = https://github.com/jarro2783/cxxopts
+[submodule "libs/sparsehash-c11"]
+	path = libs/sparsehash-c11
+	url = https://github.com/sparsehash/sparsehash-c11.git
